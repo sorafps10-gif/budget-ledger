@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Group Budget Ledger</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef1ee;--surf:#fff;--ink:#14302d;--mut:#5d716d;--line:#d3dbd7;--acc:#a8802f;--ok:#2f7d5b;--bad:#b3402f;--inp:#f7f9f7;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1b19;--surf:#172826;--ink:#e6efec;--mut:#93a8a3;--line:#2b403c;--acc:#d2a84e;--ok:#5cc196;--bad:#ef8a78;--inp:#10201e}}
+:root[data-theme="dark"]{--bg:#0f1b19;--surf:#172826;--ink:#e6efec;--mut:#93a8a3;--line:#2b403c;--acc:#d2a84e;--ok:#5cc196;--bad:#ef8a78;--inp:#10201e}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "IBM Plex Sans",system-ui,sans-serif}
+main{max-width:1180px;margin:0 auto;padding:20px 16px 48px}
+h1{font:700 30px/1.15 "Source Serif 4",Georgia,serif;margin:0}
+h2{font:700 20px "Source Serif 4",Georgia,serif;margin:0 0 10px}
+.top{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-end;margin-bottom:16px}
+.sub{color:var(--mut);margin:4px 0 0}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+label.f{display:flex;flex-direction:column;font-size:12px;color:var(--mut);gap:3px}
+input,select{font:inherit;color:var(--ink);background:var(--inp);border:1px solid var(--line);border-radius:5px;padding:6px 8px;min-width:0}
+input[type=number]{width:100%;text-align:right}
+input:disabled{opacity:.55}
+:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+nav{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px}
+nav button{background:none;border:0;border-bottom:3px solid transparent;padding:10px 14px;font:600 14px inherit;font-family:inherit;color:var(--mut);cursor:pointer}
+nav button[aria-selected=true]{color:var(--ink);border-color:var(--acc)}
+.card{background:var(--surf);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:16px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:7px 9px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+thead th{color:var(--mut);font-weight:500;font-size:12px}
+tr.tot td{font-weight:600;border-top:2px solid var(--ink)}
+tr.elim td{color:var(--mut);font-style:italic}
+tr.sub td{font-weight:600;background:var(--inp)}
+.neg{color:var(--bad)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.kpi{border-left:3px solid var(--acc);padding-left:10px}
+.kpi b{display:block;font:700 22px "Source Serif 4",Georgia,serif}
+.kpi span{color:var(--mut);font-size:12px}
+.btn{background:var(--ink);color:var(--surf);border:0;border-radius:5px;padding:7px 12px;font:600 13px inherit;font-family:inherit;cursor:pointer}
+.btn.alt{background:none;color:var(--ink);border:1px solid var(--line)}
+.btn.sm{padding:3px 8px;font-size:12px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin:10px 0}
+.st{border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:13px}
+.st.done{border-color:var(--ok)}
+.st i{font-style:normal;color:var(--mut);display:block;font-size:12px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+.hint{color:var(--mut);font-size:12px;margin:6px 0 0}
+</style>
+</head>
+<body>
+<main>
+<div class="top">
+  <div>
+    <h1>Group Budget Ledger</h1>
+    <p class="sub">Driver-based budgets per business unit, consolidated with intercompany eliminations. Demo data: Manila hotels with public room counts; rates, occupancy and costs are illustrative, not their actual financials.</p>
+  </div>
+  <div class="bar" id="globals"></div>
+</div>
+<nav role="tablist">
+  <button role="tab" data-tab="conso">Consolidation</button>
+  <button role="tab" data-tab="build">Budget builder</button>
+  <button role="tab" data-tab="lab">Scenario lab</button>
+  <button role="tab" data-tab="fc">Forecast</button>
+  <button role="tab" data-tab="calc">Formula calculator</button>
+  <button role="tab" data-tab="release">Workflow &amp; release</button>
+</nav>
+<div id="view"></div>
+</main>
+<script>
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYS=[31,28,31,30,31,30,31,31,30,31,30,31];
+const TYPES={
+ HOTEL:{label:'Hotel',cap:'Rooms',met:'Occupancy %',rate:'ADR (PHP)',f:(s,x,d)=>s.cap*d*x/100*s.rate},
+ DORMTEL:{label:'Dormtel',cap:'Beds',met:'Occupancy %',rate:'Rate per bed-night (PHP)',f:(s,x,d)=>s.cap*d*x/100*s.rate},
+ RESTAURANT:{label:'Restaurant',cap:'Seats',met:'Turns per day',rate:'Average check (PHP)',f:(s,x,d)=>s.cap*x*d*s.rate},
+ CAFE:{label:'Cafe',cap:'Seats',met:'Turns per day',rate:'Average check (PHP)',f:(s,x,d)=>s.cap*x*d*s.rate},
+ LAUNDRY:{label:'Laundry',cap:null,met:'KG processed',rate:'Rate per KG (PHP)',f:(s,x)=>x*s.rate},
+ COMMISSARY:{label:'Commissary',cap:null,met:'Units produced',rate:'Price per unit (PHP)',f:(s,x)=>x*s.rate}
+};
+const fill=v=>Array(12).fill(v);
+const mk=(code,name,type,o)=>Object.assign({code,name,type,cap:0,rate:0,cos:10,ic:0,metric:fill(0),payroll:fill(0),opex:fill(0),refresh:false,review:false,locked:false,actRev:fill(0),actCos:fill(0),actOpex:fill(0)},o);
+const DEFAULT={year:2027,payInfl:3,opexInfl:4.5,sel:0,ver:'BUD',closed:0,fmode:'driver',growth:0,sbus:[
+ mk('MNL-HTL-01','The Manila Hotel','HOTEL',{cap:570,rate:7500,cos:14,metric:[62,60,64,63,60,58,59,61,60,64,70,74],payroll:fill(22000000),opex:fill(22000000)}),
+ mk('MNL-HTL-02','Conrad Manila','HOTEL',{cap:347,rate:9500,cos:14,metric:[66,63,67,66,62,60,62,64,63,68,73,78],payroll:fill(17000000),opex:fill(17000000)}),
+ mk('MNL-HTL-03','Shangri-La The Fort','HOTEL',{cap:576,rate:11500,cos:15,metric:[68,66,70,69,65,63,64,66,65,70,76,80],payroll:fill(32000000),opex:fill(38000000)}),
+ mk('MNL-HTL-04','Century Park Hotel','HOTEL',{cap:478,rate:5200,cos:13,metric:[58,56,60,59,57,55,56,58,57,61,66,70],payroll:fill(12000000),opex:fill(12000000)}),
+ mk('MNL-SVC-01','Group Laundry Plant','LAUNDRY',{rate:55,cos:20,ic:80,metric:fill(180000),payroll:fill(2200000),opex:fill(1800000)}),
+ mk('MNL-SVC-02','Group Commissary','COMMISSARY',{rate:110,cos:62,ic:75,metric:fill(90000),payroll:fill(1200000),opex:fill(900000)})
+]};
+let S;
+try{S=JSON.parse(localStorage.getItem('budgetLedger2')||'null')}catch(e){S=null}
+if(!S)S=JSON.parse(JSON.stringify(DEFAULT));
+S=Object.assign({ver:'BUD',closed:0,fmode:'driver',growth:0,sc:{occ:0,adr:0,vol:0},target:0,lever:'adr'},S);
+S.sbus.forEach(s=>{s.actRev=s.actRev||fill(0);s.actCos=s.actCos||fill(0);s.actOpex=s.actOpex||fill(0)});
+let tab='conso';
+const save=()=>{try{localStorage.setItem('budgetLedger2',JSON.stringify(S))}catch(e){}};
+const fmt=n=>Math.round(n).toLocaleString('en-PH');
+const pct=(a,b)=>b?(a/b*100).toFixed(1)+'%':'--';
+const esc=t=>String(t).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const cls=n=>n<0?' class="neg"':'';
+
+/* ---- Calculation engine: driver-based revenue, COS, opex, EBITDA ---- */
+function calc(s,ver,sc){ver=ver||S.ver;sc=sc||{occ:0,adr:0,vol:0};s=Object.assign({},s,{rate:s.rate*(1+sc.adr/100)});const hot=s.type==='HOTEL'||s.type==='DORMTEL',adj=x=>x?(hot?Math.min(100,Math.max(0,x+sc.occ)):x*(1+sc.vol/100)):0;
+ const T=TYPES[s.type],pf=1+S.payInfl/100,of=1+S.opexInfl/100;
+ const r={rev:[],cos:[],gp:[],pay:[],opx:[],ebitda:[]};
+ const k=S.closed,n=Math.min(3,k),base=n?s.actRev.slice(k-n,k).reduce((a,b)=>a+(+b||0),0)/n:0;
+ for(let m=0;m<12;m++){
+  const le=ver==='LE';
+  if(le&&m<k){const a=+s.actRev[m]||0,c=+s.actCos[m]||0,x=+s.actOpex[m]||0;r.rev.push(a);r.cos.push(c);r.gp.push(a-c);r.pay.push(0);r.opx.push(x);r.ebitda.push(a-c-x);continue}
+  const b=T.f(s,adj(+s.metric[m]||0),DAYS[m]),fm=S.fmode;
+  const rev=!le||!n||fm==='driver'?b:fm==='runrate'?base*(1+S.growth/100):b*(1+S.growth/100),cos=rev*s.cos/100;
+  const pay=(+s.payroll[m]||0)*pf,opx=(+s.opex[m]||0)*of;
+  r.rev.push(rev);r.cos.push(cos);r.gp.push(rev-cos);r.pay.push(pay);r.opx.push(opx);r.ebitda.push(rev-cos-pay-opx);
+ }
+ const sum=a=>a.reduce((x,y)=>x+y,0);
+ r.t={rev:sum(r.rev),cos:sum(r.cos),gp:sum(r.gp),pay:sum(r.pay),opx:sum(r.opx),ebitda:sum(r.ebitda)};
+ r.t.opexAll=r.t.pay+r.t.opx;
+ return r;
+}
+/* Intercompany: sales to sister units are removed from revenue AND the buyer's COS, so EBITDA is unchanged. */
+function consolidate(ver,sc){
+ const rows=S.sbus.map(s=>({s,c:calc(s,ver,sc)}));
+ const elim=Array(12).fill(0);
+ rows.forEach(({s,c})=>c.rev.forEach((v,m)=>elim[m]+=v*s.ic/100));
+ const tot=k=>rows.reduce((a,x)=>a+x.c.t[k],0);
+ const E=elim.reduce((a,b)=>a+b,0);
+ const conso={rev:tot('rev')-E,cos:tot('cos')-E,opexAll:tot('opexAll'),ebitda:tot('ebitda')};
+ conso.gp=conso.rev-conso.cos;
+ const mRev=MONTHS.map((_,m)=>rows.reduce((a,x)=>a+x.c.rev[m],0)-elim[m]);
+ const mEb=MONTHS.map((_,m)=>rows.reduce((a,x)=>a+x.c.ebitda[m],0));
+ return {rows,E,conso,mRev,mEb};
+}
+
+/* ---- Views ---- */
+function globals(){
+ document.getElementById('globals').innerHTML=`
+ <label class="f">Version<select data-g="ver"><option value="BUD" ${S.ver==='BUD'?'selected':''}>Original budget</option><option value="LE" ${S.ver==='LE'?'selected':''}>Latest estimate</option></select></label>
+ <label class="f">Budget year<input type="number" data-g="year" value="${S.year}" style="width:90px"></label>
+ <label class="f">Payroll inflation %<input type="number" step="0.1" data-g="payInfl" value="${S.payInfl}" style="width:110px"></label>
+ <label class="f">Opex inflation %<input type="number" step="0.1" data-g="opexInfl" value="${S.opexInfl}" style="width:110px"></label>
+ <button class="btn alt" data-act="reset">Reset demo data</button>`;
+}
+function viewConso(){
+ const {rows,E,conso,mRev,mEb}=consolidate();
+ const line=(n,t)=>`<td>${n}</td><td>${fmt(t.rev)}</td><td>${fmt(t.cos)}</td><td>${fmt(t.gp)}</td><td>${fmt(t.opexAll)}</td><td${cls(t.ebitda)}>${fmt(t.ebitda)}</td><td>${pct(t.ebitda,t.rev)}</td>`;
+ return `
+ <div class="grid">
+  <div class="kpi"><b>PHP ${fmt(conso.rev)}</b><span>Group revenue (after eliminations)</span></div>
+  <div class="kpi"><b>PHP ${fmt(conso.gp)}</b><span>Gross profit</span></div>
+  <div class="kpi"><b${cls(conso.ebitda)}>PHP ${fmt(conso.ebitda)}</b><span>Group EBITDA</span></div>
+  <div class="kpi"><b>${pct(conso.ebitda,conso.rev)}</b><span>EBITDA margin</span></div>
+ </div>
+ <div class="card"><h2>FY${S.year} ${S.ver==='LE'?'latest estimate':'budget'}: consolidated P&amp;L by business unit</h2><div class="scroll"><table>
+ <thead><tr><th>Business unit</th><th>Gross revenue</th><th>Total COS</th><th>Gross profit</th><th>Total opex</th><th>EBITDA</th><th>EBITDA %</th></tr></thead><tbody>
+ ${rows.map(({s,c})=>`<tr>${line(esc(s.name)+' <small class="sub">'+TYPES[s.type].label+(s.locked?' · locked':'')+'</small>',c.t)}</tr>`).join('')}
+ <tr class="sub">${line('Total before eliminations',{rev:rows.reduce((a,x)=>a+x.c.t.rev,0),cos:rows.reduce((a,x)=>a+x.c.t.cos,0),gp:rows.reduce((a,x)=>a+x.c.t.gp,0),opexAll:conso.opexAll,ebitda:conso.ebitda})}</tr>
+ <tr class="elim"><td>Intercompany eliminations</td><td>(${fmt(E)})</td><td>(${fmt(E)})</td><td>0</td><td>0</td><td>0</td><td></td></tr>
+ <tr class="tot">${line('Group consolidated',conso)}</tr></tbody></table></div>
+ <p class="hint">Eliminations = each unit’s revenue × its intercompany sales % (set in the budget builder). They come out of revenue and the buying unit’s cost of sales.</p></div>
+ <div class="card"><h2>Monthly group trend</h2><div class="scroll"><table>
+ <thead><tr><th></th>${MONTHS.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody>
+ <tr><td>Revenue</td>${mRev.map(v=>`<td>${fmt(v)}</td>`).join('')}</tr>
+ <tr><td>EBITDA</td>${mEb.map(v=>`<td${cls(v)}>${fmt(v)}</td>`).join('')}</tr></tbody></table></div></div>`;
+}
+function viewBuild(){
+ if(S.sel>=S.sbus.length)S.sel=0;
+ const s=S.sbus[S.sel],T=TYPES[s.type],r=calc(s,'BUD'),d=s.locked?'disabled':'';
+ const row=(k,label)=>`<tr><td>${label} <button class="btn alt sm" data-act="fill" data-k="${k}" ${d}>Copy Jan across</button></td>${MONTHS.map((_,m)=>`<td style="min-width:92px"><input type="number" data-k="${k}" data-m="${m}" value="${s[k][m]}" ${d}></td>`).join('')}<td></td></tr>`;
+ const calcRow=(label,a,t,cn)=>`<tr class="${cn||''}"><td>${label}</td>${a.map(v=>`<td${cls(v)}>${fmt(v)}</td>`).join('')}<td${cls(t)}>${fmt(t)}</td></tr>`;
+ return `
+ <div class="card"><div class="bar" style="margin-bottom:12px">
+  <label class="f">Business unit<select data-sel>${S.sbus.map((x,i)=>`<option value="${i}" ${i==S.sel?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
+  <label class="f">Add unit<select id="newType">${Object.keys(TYPES).map(k=>`<option value="${k}">${TYPES[k].label}</option>`).join('')}</select></label>
+  <button class="btn" data-act="add">Add business unit</button>
+  <button class="btn alt" data-act="del" ${S.sbus.length<2?'disabled':''}>Delete this unit</button>
+ </div>
+ ${s.locked?'<p class="bad">This unit is released and locked. Unlock it in Workflow &amp; release to edit.</p>':''}
+ <div class="grid">
+  <label class="f">Unit name<input data-k="name" value="${esc(s.name)}" ${d}></label>
+  <label class="f">Unit code<input data-k="code" value="${esc(s.code)}" ${d}></label>
+  ${T.cap?`<label class="f">${T.cap}<input type="number" data-k="cap" value="${s.cap}" ${d}></label>`:''}
+  <label class="f">${T.rate}<input type="number" data-k="rate" value="${s.rate}" ${d}></label>
+  <label class="f">Cost of sales % of revenue<input type="number" step="0.1" data-k="cos" value="${s.cos}" ${d}></label>
+  <label class="f">Sold to group units %<input type="number" step="0.1" data-k="ic" value="${s.ic}" ${d}></label>
+ </div>
+ <div class="scroll"><table><thead><tr><th>FY${S.year}</th>${MONTHS.map(m=>`<th>${m}</th>`).join('')}<th>Total</th></tr></thead><tbody>
+  ${row('metric',T.met)}
+  ${calcRow('Revenue',r.rev,r.t.rev)}
+  ${calcRow('Cost of sales',r.cos,r.t.cos)}
+  ${calcRow('Gross profit',r.gp,r.t.gp,'sub')}
+  ${row('payroll','Payroll (before inflation)')}
+  ${row('opex','Other opex (before inflation)')}
+  ${calcRow('EBITDA',r.ebitda,r.t.ebitda,'tot')}
+ </tbody></table></div>
+ <p class="hint">Revenue formula: ${s.type==='HOTEL'||s.type==='DORMTEL'?'capacity × days × occupancy % × rate':s.type==='CAFE'||s.type==='RESTAURANT'?'seats × turns × days × average check':'volume × rate'}. Payroll and opex use the inflation sliders at the top.</p></div>`;
+}
+function qc(s){
+ const T=TYPES[s.type],e=[];
+ if(!s.name.trim()||!s.code.trim())e.push('Name and code are required');
+ if(!(s.rate>0))e.push('Rate must be above zero');
+ if(T.cap&&!(s.cap>0))e.push('Capacity must be above zero');
+ if(s.metric.some(v=>!(+v>0)))e.push('Every month needs a '+T.met.toLowerCase()+' value');
+ if((s.type==='HOTEL'||s.type==='DORMTEL')&&s.metric.some(v=>+v>100))e.push('Occupancy cannot exceed 100%');
+ if(s.cos<0||s.cos>=100)e.push('Cost of sales % must be between 0 and 100');
+ if(s.ic<0||s.ic>100)e.push('Intercompany % must be between 0 and 100');
+ if(S.sbus.filter(x=>x.code===s.code).length>1)e.push('Duplicate unit code');
+ return e;
+}
+function viewRelease(){
+ return S.sbus.map((s,i)=>{
+  const errs=qc(s),build=!errs.some(x=>x.includes('month')||x.includes('Capacity')||x.includes('Rate'));
+  const steps=[
+   ['1 Set up',!errs.some(x=>x.includes('required')||x.includes('Duplicate')),'Name, code and assumptions confirmed',null],
+   ['2 Refresh',s.refresh,'Actuals and headcount loaded','refresh'],
+   ['3 Build',build,'All drivers filled in',null],
+   ['4 Review',s.review,'FP&amp;A and GM variance review','review'],
+   ['5 Release',s.locked,'QC passed and locked',null]];
+  return `<div class="card"><h2>${esc(s.name)} <small class="sub">${esc(s.code)}</small></h2>
+  <div class="steps">${steps.map(([n,ok,desc,key])=>`<div class="st ${ok?'done':''}"><b class="${ok?'ok':''}">${ok?'✓ ':''}${n}</b><i>${desc}</i>${key?`<label><input type="checkbox" data-flag="${key}" data-i="${i}" ${ok?'checked':''} ${s.locked?'disabled':''}> Mark done</label>`:''}</div>`).join('')}</div>
+  ${errs.length?`<p class="bad">QC failed: ${errs.map(esc).join('; ')}.</p>`:'<p class="ok">QC passed: all automated checks are green.</p>'}
+  <button class="btn" data-act="${s.locked?'unlock':'lock'}" data-i="${i}" ${(!s.locked&&(errs.length||!s.refresh||!s.review))?'disabled':''}>${s.locked?'Unlock budget':'Release and lock'}</button>
+  ${!s.locked&&!(s.refresh&&s.review)?'<span class="hint"> Mark Refresh and Review done to enable release.</span>':''}</div>`;
+ }).join('');
+}
+function viewFc(){
+ if(S.sel>=S.sbus.length)S.sel=0;
+ const s=S.sbus[S.sel],k=S.closed,B=consolidate('BUD'),L=consolidate('LE');
+ const v=(a,b)=>`<td${cls(b-a)}>${fmt(b-a)}</td>`;
+ const ar=(key,label)=>`<tr><td>${label}</td>${MONTHS.map((_,m)=>`<td style="min-width:92px"><input type="number" data-a="${key}" data-m="${m}" value="${s[key][m]}" ${m>=k?'disabled':''}></td>`).join('')}</tr>`;
+ const vr=(n,x,y)=>`<td>${n}</td><td>${fmt(x.rev)}</td><td>${fmt(y.rev)}</td>${v(x.rev,y.rev)}<td>${fmt(x.ebitda)}</td><td>${fmt(y.ebitda)}</td>${v(x.ebitda,y.ebitda)}`;
+ const modes=[['driver','Driver-based (budget drivers)'],['runrate','Run-rate (3-month average)'],['growth','Budget drivers plus growth %']];
+ return `<div class="card"><h2>Forecast settings</h2><div class="bar">
+ <label class="f">Months closed (actuals)<select data-g="closed">${[...Array(13).keys()].map(i=>`<option value="${i}" ${i==k?'selected':''}>${i===0?'None':MONTHS[i-1]+' ('+i+')'}</option>`).join('')}</select></label>
+ <label class="f">Method for remaining months<select data-g="fmode">${modes.map(([a,b])=>`<option value="${a}" ${S.fmode===a?'selected':''}>${b}</option>`).join('')}</select></label>
+ <label class="f">Growth or trend %<input type="number" step="0.1" data-g="growth" value="${S.growth}" style="width:100px"></label></div>
+ <p class="hint">Closed months use actuals; later months use the method above (run-rate needs at least one closed month). Set Version to “Latest estimate” at the top to send the forecast through Consolidation.</p></div>
+ <div class="card"><h2>Budget vs latest estimate</h2><div class="scroll"><table><thead><tr><th>Business unit</th><th>Budget revenue</th><th>LE revenue</th><th>Variance</th><th>Budget EBITDA</th><th>LE EBITDA</th><th>Variance</th></tr></thead><tbody>
+ ${B.rows.map((x,i)=>`<tr>${vr(esc(x.s.name),x.c.t,L.rows[i].c.t)}</tr>`).join('')}
+ <tr class="tot">${vr('Group (after eliminations)',B.conso,L.conso)}</tr></tbody></table></div>
+ <div class="scroll" style="margin-top:10px"><table><thead><tr><th>Group EBITDA</th>${MONTHS.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody><tr><td>Budget</td>${B.mEb.map(x=>`<td${cls(x)}>${fmt(x)}</td>`).join('')}</tr><tr><td>Latest estimate</td>${L.mEb.map(x=>`<td${cls(x)}>${fmt(x)}</td>`).join('')}</tr></tbody></table></div></div>
+ <div class="card"><div class="bar" style="margin-bottom:10px"><h2 style="margin:0">Actuals entry</h2><label class="f">Business unit<select data-sel>${S.sbus.map((x,i)=>`<option value="${i}" ${i==S.sel?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label></div>
+ <div class="scroll"><table><thead><tr><th>${esc(s.name)}</th>${MONTHS.map(m=>`<th>${m}</th>`).join('')}</tr></thead><tbody>${ar('actRev','Actual revenue')}${ar('actCos','Actual cost of sales')}${ar('actOpex','Actual payroll + opex')}</tbody></table></div>
+ ${k?'':'<p class="hint">Choose how many months are closed above to enter actuals.</p>'}</div>`;
+}
+const CALCS=[
+ {t:'Rooms or beds revenue',h:'Capacity × days × occupancy % × ADR',f:[['cap','Rooms or beds',120],['days','Days',30],['occ','Occupancy %',65],['adr','ADR (PHP)',3800]],o:[['Available room nights',v=>v.cap*v.days],['Occupied room nights',v=>v.cap*v.days*v.occ/100],['Rooms revenue (PHP)',v=>v.cap*v.days*v.occ/100*v.adr],['RevPAR (PHP)',v=>v.occ/100*v.adr]]},
+ {t:'Restaurant or cafe revenue',h:'Seats × turns × days × average check',f:[['seats','Seats',60],['turns','Turns per day',3],['days','Days',30],['chk','Average check (PHP)',280]],o:[['Covers',v=>v.seats*v.turns*v.days],['Revenue (PHP)',v=>v.seats*v.turns*v.days*v.chk],['Revenue per seat (PHP)',v=>v.turns*v.days*v.chk]]},
+ {t:'Laundry revenue',h:'KG processed × rate per KG',f:[['kg','KG processed',45000],['rate','Rate per KG (PHP)',48],['mat','Direct material per KG (PHP)',9]],o:[['Revenue (PHP)',v=>v.kg*v.rate],['Direct material (PHP)',v=>v.kg*v.mat],['Margin after material',v=>(v.rate-v.mat)/v.rate*100,'p']]},
+ {t:'Commissary revenue',h:'Units produced × transfer or selling price',f:[['u','Units produced',18000],['p','Price per unit (PHP)',95],['c','Production cost per unit (PHP)',59]],o:[['Revenue (PHP)',v=>v.u*v.p],['Production cost (PHP)',v=>v.u*v.c],['Gross profit (PHP)',v=>v.u*(v.p-v.c)],['Gross margin',v=>(v.p-v.c)/v.p*100,'p']]},
+ {t:'EBITDA and margin',h:'Revenue − cost of sales − payroll − opex',f:[['rev','Revenue (PHP)',1000000],['cos','Cost of sales %',30],['pay','Payroll (PHP)',250000],['opx','Other opex (PHP)',150000]],o:[['Gross profit (PHP)',v=>v.rev*(1-v.cos/100)],['EBITDA (PHP)',v=>v.rev*(1-v.cos/100)-v.pay-v.opx],['EBITDA margin',v=>(v.rev*(1-v.cos/100)-v.pay-v.opx)/v.rev*100,'p']]},
+ {t:'Break-even occupancy',h:'Fixed costs ÷ (rooms × days × ADR × contribution %)',f:[['cap','Rooms',120],['days','Days',30],['adr','ADR (PHP)',3800],['var','Variable cost %',20],['fix','Fixed costs for the period (PHP)',2500000]],o:[['Break-even occupancy',v=>v.fix/(v.cap*v.days*v.adr*(1-v.var/100))*100,'p'],['Break-even room nights',v=>v.fix/(v.adr*(1-v.var/100))]]},
+ {t:'Cost inflation bump',h:'Base × (1 + increase %)',f:[['base','Base amount (PHP)',1000000],['pct','Increase %',4.5]],o:[['Adjusted amount (PHP)',v=>v.base*(1+v.pct/100)],['Increase (PHP)',v=>v.base*v.pct/100]]},
+ {t:'Run-rate projection',h:'Year-to-date ÷ months elapsed × 12, with optional trend',f:[['ytd','Year-to-date actual (PHP)',6000000],['mo','Months elapsed',6],['g','Trend on remaining months %',0]],o:[['Monthly run-rate (PHP)',v=>v.ytd/v.mo],['Full-year projection (PHP)',v=>v.ytd+v.ytd/v.mo*(12-v.mo)*(1+v.g/100)]]}
+];
+function viewCalc(){
+ return `<p class="sub" style="margin-bottom:12px">Quick formula checks. Results update as you type and nothing here changes your budget.</p><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">${CALCS.map((c,i)=>`<div class="card" data-c="${i}" style="margin:0"><h2>${c.t}</h2><p class="hint" style="margin:0 0 8px">${c.h}</p>${c.f.map(([id,l,d])=>`<label class="f" style="margin-bottom:6px">${l}<input type="number" step="any" name="${id}" value="${d}"></label>`).join('')}<table><tbody>${c.o.map(([l])=>`<tr><td>${l}</td><td><b><output></output></b></td></tr>`).join('')}</tbody></table></div>`).join('')}</div>`;
+}
+function initCalc(){
+ document.querySelectorAll('[data-c]').forEach(el=>{
+  const c=CALCS[+el.dataset.c];
+  const run=()=>{const v={};el.querySelectorAll('input').forEach(i=>v[i.name]=+i.value||0);
+   el.querySelectorAll('output').forEach((o,j)=>{const x=c.o[j][1](v);o.textContent=!isFinite(x)?'--':c.o[j][2]==='p'?x.toFixed(1)+'%':x.toLocaleString('en-PH',{maximumFractionDigits:2})})};
+  el.addEventListener('input',run);run();
+ });
+}
+function viewLab(){
+ const sc=S.sc,base=consolidate(S.ver),scn=consolidate(S.ver,sc);
+ const mg=c=>c.rev?c.ebitda/c.rev*100:0,d=scn.conso.ebitda-base.conso.ebitda;
+ const sl=(k,l,min,max,u)=>`<label class="f" style="min-width:210px;flex:1">${l}: <b>${sc[k]>0?'+':''}${sc[k]}${u}</b><input type="range" min="${min}" max="${max}" step="0.5" value="${sc[k]}" data-sc="${k}" data-u="${u}"></label>`;
+ const hot=base.rows.filter(x=>x.s.type==='HOTEL'||x.s.type==='DORMTEL').map(({s,c})=>{
+  const arn=s.cap*365,occN=DAYS.reduce((a,dy,m)=>a+s.cap*dy*(+s.metric[m]||0)/100,0);
+  return {s,occ:occN/arn*100,revpar:c.t.rev/arn,per:c.t.ebitda/arn,m:c.t.rev?c.t.ebitda/c.t.rev*100:0};
+ }).sort((a,b)=>b.per-a.per);
+ const mx=Math.max(...hot.map(h=>h.per),1);
+ const lv=[['occ',5,'Occupancy +5 pts'],['occ',-5,'Occupancy −5 pts'],['adr',5,'Rates and prices +5%'],['adr',-5,'Rates and prices −5%'],['vol',5,'Volume +5%'],['vol',-5,'Volume −5%']];
+ const sens=lv.map(([k,v,l])=>({l,d:consolidate(S.ver,{occ:0,adr:0,vol:0,[k]:v}).conso.ebitda-base.conso.ebitda})).sort((a,b)=>Math.abs(b.d)-Math.abs(a.d));
+ const ms=Math.max(...sens.map(x=>Math.abs(x.d)),1);
+ const cur=mg(base.conso),tgt=S.target||+(cur+3).toFixed(1);
+ const f=(k,x)=>mg(consolidate(S.ver,{occ:0,adr:0,vol:0,[k]:x}).conso);
+ const names={adr:'rates and prices',occ:'occupancy',vol:'volumes'},units={adr:'%',occ:' pts',vol:'%'};
+ let need=null;const L=S.lever||'adr';
+ if(f(L,30)>=tgt&&f(L,-30)<=tgt){let lo=-30,hi=30;for(let i=0;i<30;i++){const mid=(lo+hi)/2;f(L,mid)<tgt?lo=mid:hi=mid}need=(lo+hi)/2}
+ return `<div class="card"><h2>Hotel scoreboard</h2><div class="scroll"><table><thead><tr><th>Ranked by EBITDA per available room</th><th>Occupancy</th><th>ADR</th><th>RevPAR</th><th>EBITDA / room</th><th>EBITDA %</th><th>Monthly occupancy</th></tr></thead><tbody>
+ ${hot.map((h,i)=>`<tr><td>${i+1}. ${esc(h.s.name)}</td><td>${h.occ.toFixed(1)}%</td><td>${fmt(h.s.rate)}</td><td>${fmt(h.revpar)}</td><td><span style="display:inline-flex;gap:6px;align-items:center;justify-content:flex-end">${fmt(h.per)}<span style="display:inline-block;height:8px;width:${Math.max(0,h.per/mx*70)}px;background:var(--acc);border-radius:2px"></span></span></td><td>${h.m.toFixed(1)}%</td><td><span style="display:inline-flex;gap:2px">${h.s.metric.map((v,m)=>`<span title="${MONTHS[m]} ${v}%" style="width:12px;height:16px;background:color-mix(in srgb,var(--acc) ${Math.min(100,Math.max(0,v))}%,transparent)"></span>`).join('')}</span></td></tr>`).join('')}</tbody></table></div>
+ <p class="hint">Darker cells mean higher occupancy. Budget drivers only; actuals are not included.</p></div>
+ <div class="card"><h2>What-if levers</h2><p class="sub" style="margin:0 0 10px">Move a slider to see the group result. Your budget data is not changed.</p>
+ <div class="bar">${sl('occ','Occupancy (hotels, dormtel)',-10,10,' pts')}${sl('adr','Rates and prices (all units)',-10,10,'%')}${sl('vol','Volume (F&amp;B, laundry, commissary)',-20,20,'%')}<button class="btn alt" data-act="scr">Reset sliders</button></div>
+ <div class="grid" style="margin-top:14px"><div class="kpi"><b>PHP ${fmt(base.conso.ebitda)}</b><span>Group EBITDA now (${mg(base.conso).toFixed(1)}%)</span></div>
+ <div class="kpi"><b>PHP ${fmt(scn.conso.ebitda)}</b><span>With levers (${mg(scn.conso).toFixed(1)}%)</span></div>
+ <div class="kpi"><b${cls(d)}>${d>=0?'+':''}${fmt(d)}</b><span>Change in group EBITDA</span></div></div>
+ <div class="scroll"><table><thead><tr><th>Business unit</th><th>EBITDA now</th><th>EBITDA with levers</th><th>Change</th></tr></thead><tbody>${base.rows.map((x,i)=>{const y=scn.rows[i].c.t.ebitda-x.c.t.ebitda;return `<tr><td>${esc(x.s.name)}</td><td>${fmt(x.c.t.ebitda)}</td><td>${fmt(scn.rows[i].c.t.ebitda)}</td><td${cls(y)}>${fmt(y)}</td></tr>`}).join('')}</tbody></table></div></div>
+ <div class="card"><h2>What moves group EBITDA most</h2>
+ ${sens.map(x=>`<div style="display:grid;grid-template-columns:190px 1fr 120px;gap:10px;align-items:center;margin:6px 0"><span>${x.l}</span><span style="display:block;height:10px;border-radius:2px;width:${Math.abs(x.d)/ms*100}%;background:${x.d>=0?'var(--ok)':'var(--bad)'}"></span><span style="text-align:right"${cls(x.d)}>${x.d>=0?'+':''}${fmt(x.d)}</span></div>`).join('')}
+ <p class="hint">Each row changes one driver across every unit and shows the effect on group EBITDA (PHP).</p></div>
+ <div class="card"><h2>Target finder</h2><div class="bar">
+ <label class="f">Target group EBITDA margin %<input type="number" step="0.1" data-g="target" value="${tgt}" style="width:120px"></label>
+ <label class="f">Lever to pull<select data-g="lever">${['adr','occ','vol'].map(k=>`<option value="${k}" ${L===k?'selected':''}>${names[k]}</option>`).join('')}</select></label></div>
+ <p style="margin:12px 0 0;font-size:16px">${need===null?`This target can’t be reached by moving ${names[L]} alone (within ±30).`:`Move ${names[L]} by <b>${need>=0?'+':''}${need.toFixed(1)}${units[L]}</b> across all units to reach a ${tgt}% group EBITDA margin. The margin today is ${cur.toFixed(1)}%.`}</p></div>`;
+}
+function render(){
+ globals();
+ document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===tab));
+ document.getElementById('view').innerHTML=({conso:viewConso,build:viewBuild,fc:viewFc,lab:viewLab,calc:viewCalc,release:viewRelease})[tab]();
+ if(tab==='calc')initCalc();
+}
+
+/* ---- Events ---- */
+document.addEventListener('click',e=>{
+ const t=e.target.closest('[data-tab],[data-act]');if(!t)return;
+ if(t.dataset.tab){tab=t.dataset.tab;return render()}
+ const a=t.dataset.act,s=S.sbus[S.sel];
+ if(a==='reset'){if(confirm('Replace all data with the demo data?')){S=JSON.parse(JSON.stringify(DEFAULT));save();render()}}
+ if(a==='add'){const ty=document.getElementById('newType').value,n=S.sbus.length+1;
+  S.sbus.push(mk('SBU-'+String(n).padStart(3,'0'),'New '+TYPES[ty].label.toLowerCase(),ty,{cap:TYPES[ty].cap?50:0,rate:100,cos:30,metric:fill(ty==='HOTEL'||ty==='DORMTEL'?60:ty==='CAFE'||ty==='RESTAURANT'?2:1000),payroll:fill(100000),opex:fill(80000)}));
+  S.sel=S.sbus.length-1;save();render()}
+ if(a==='del'){if(confirm('Delete '+s.name+'?')){S.sbus.splice(S.sel,1);S.sel=0;save();render()}}
+ if(a==='scr'){S.sc={occ:0,adr:0,vol:0};save();render()}
+ if(a==='fill'){const k=t.dataset.k;s[k]=fill(s[k][0]);save();render()}
+ if(a==='lock'||a==='unlock'){S.sbus[+t.dataset.i].locked=a==='lock';save();render()}
+});
+document.addEventListener('input',e=>{const t=e.target;if(t.dataset.sc){const o=t.parentNode.querySelector('b');if(o)o.textContent=(t.value>0?'+':'')+t.value+(t.dataset.u||'')}});
+document.addEventListener('change',e=>{
+ const t=e.target,s=S.sbus[S.sel];
+ if(t.dataset.g){S[t.dataset.g]=isNaN(+t.value)?t.value:+t.value;save();render()}
+ else if(t.dataset.sel!==undefined){S.sel=+t.value;render()}
+ else if(t.dataset.flag){S.sbus[+t.dataset.i][t.dataset.flag]=t.checked;save();render()}
+ else if(t.dataset.sc){S.sc[t.dataset.sc]=+t.value;save();render()}
+ else if(t.dataset.a){s[t.dataset.a][+t.dataset.m]=+t.value;save();render()}
+ else if(t.dataset.k){
+  const k=t.dataset.k;
+  if(t.dataset.m!==undefined)s[k][+t.dataset.m]=+t.value;
+  else s[k]=(k==='name'||k==='code')?t.value:+t.value;
+  save();render()}
+});
+render();
+</script>
+</body>
+</html>
